@@ -70,7 +70,7 @@ class Vehicle {
     }
   }
 
-  public static function new_vehicle_usage($conn, int $driver_id, string $licence_number, string $date) {
+  public static function new_vehicle_usage($conn, int $driver_id, string $licence_number, string $date, $passenger_id = null, $cargo_id = null) {
 
     $sql = "SELECT * FROM driver WHERE id = $driver_id";
     $result = $conn->query($sql);
@@ -82,7 +82,9 @@ class Vehicle {
       exit();
     }
     $sql = "SELECT
-        COALESCE(car.drive_with, pickup.drive_with, truck.drive_with) AS drive_with_licence
+        COALESCE(car.drive_with, pickup.drive_with, truck.drive_with) AS drive_with_licence,
+        car.number_of_persons_that_can_be_transported,
+        COALESCE(pickup.transportable_load, truck.transportable_load) AS transportable_load
       FROM
         vehicle
         LEFT JOIN car ON vehicle.licence_number = car.licence_number
@@ -94,16 +96,59 @@ class Vehicle {
     if ($result->num_rows > 0) {
       $row = $result->fetch_assoc();
       $v_licence = $row['drive_with_licence'];
+      $number_of_persons_that_can_be_transported = $row['number_of_persons_that_can_be_transported'];
+      $transportable_load = $row['transportable_load'];
     } else {
       echo "No such vehicle!" . PHP_EOL;
       exit();
     }
+
+    if (!is_null($passenger_id)) {
+      if (is_null($number_of_persons_that_can_be_transported)) {
+        echo "Only can put passengers in cars!" . PHP_EOL;
+        exit();
+      }
+      $sql = "SELECT * FROM passenger WHERE id = $passenger_id";
+      $result = $conn->query($sql);
+      if ($result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        $number_of_persons = $row['number_of_persons'];
+        if ($number_of_persons > $number_of_persons_that_can_be_transported) {
+          echo "There is not enough space in the chosen car!" . PHP_EOL;
+          exit();
+        }
+      } else {
+        echo "No such passenger!" . PHP_EOL;
+        exit();
+      }
+      $sql = "INSERT INTO vehicle_usage (driver_id, vehicle_licence_number, usage_date, passenger_id) VALUES ($driver_id, '$licence_number', '$date', $passenger_id);";
+    } elseif (!is_null($cargo_id)) {
+      if (is_null($transportable_load)) {
+        echo "Only can put cargo in pickup/truck!" . PHP_EOL;
+        exit();
+      }
+      $sql = "SELECT * FROM cargo WHERE id = $cargo_id";
+      $result = $conn->query($sql);
+      if ($result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        $weight = $row['weight'];
+        if ($weight > $transportable_load) {
+          echo "There is not enough space in the chosen pickup/truck!" . PHP_EOL;
+          exit();
+        }
+      } else {
+        echo "No such cargo!" . PHP_EOL;
+        exit();
+      }
+      $sql = "INSERT INTO vehicle_usage (driver_id, vehicle_licence_number, usage_date, cargo_id) VALUES ($driver_id, '$licence_number', '$date', $cargo_id);";
+    } else {
+      echo "Please select a passenger_id or cargo_id";
+      exit();
+    }
+
     //echo $d_license_type. PHP_EOL.$v_licence.PHP_EOL.strpos($d_license_type, $v_licence).PHP_EOL;
 
     if (strpos($v_licence, $d_license_type) !== false) {
-
-      $sql = "INSERT INTO vehicle_usage (driver_id, vehicle_licence_number, usage_date) VALUES ($driver_id, '$licence_number', '$date');";
-
       if ($conn->query($sql) === TRUE) {
         echo "New vehicle_usage created successfully" . PHP_EOL;
       } else {
@@ -126,7 +171,11 @@ class Vehicle {
         END
         ) AS v,
         CONCAT(driver.name, ' ', driver.birth_year) AS d,
-        vehicle_usage.usage_date AS 'day'
+        vehicle_usage.usage_date AS 'day',
+        passenger.id AS pass_id,
+        cargo.id AS carg_id,
+        CONCAT(' - Orderer: ', passenger.orderer, ' - number of persons: ', passenger.number_of_persons) AS passengers,
+        CONCAT(' - Pickup place: ', cargo.pickup_place, ' - weight: ', cargo.weight) AS cargos
       FROM
         vehicle
         INNER JOIN vehicle_usage ON vehicle.licence_number = vehicle_usage.vehicle_licence_number
@@ -134,6 +183,8 @@ class Vehicle {
         LEFT JOIN car ON vehicle.licence_number = car.licence_number
         LEFT JOIN pickup ON vehicle.licence_number = pickup.licence_number
         LEFT JOIN truck ON vehicle.licence_number = truck.licence_number
+        LEFT JOIN passenger ON vehicle_usage.passenger_id = passenger.id
+        LEFT JOIN cargo ON vehicle_usage.cargo_id = cargo.id
       WHERE
         vehicle_usage.usage_date >= '$from'
         AND vehicle_usage.usage_date <= '$to'
@@ -145,7 +196,14 @@ class Vehicle {
     $result = $conn->query($sql);
     if ($result->num_rows > 0) {
       while ($row = $result->fetch_assoc()) {
-        echo "vehicle: " . $row["v"]. " - driver: " . $row["d"]. "  - Day: " . $row["day"]. PHP_EOL;
+        echo "vehicle: " . $row["v"]. " - driver: " . $row["d"]. " - Day: " . $row["day"];
+        if (!is_null($row['pass_id'])) {
+          echo $row['passengers'];
+        }
+        if (!is_null($row['carg_id'])) {
+          echo $row['cargos'];
+        }
+        echo PHP_EOL;
       }
     } else {
       echo "0 results";
@@ -424,9 +482,14 @@ function list_drivers() {
   Driver::list($conn);
 }
 
-function new_vehicle_usage(int $driver_id, string $licence_number, string $date) {
+function new_car_usage(int $driver_id, string $licence_number, string $date, int $passenger_id) {
   global $conn;
-  Vehicle::new_vehicle_usage($conn, $driver_id, $licence_number, $date);
+  Vehicle::new_vehicle_usage($conn, $driver_id, $licence_number, $date, $passenger_id);
+}
+
+function new_cargo_usage(int $driver_id, string $licence_number, string $date, $cargo_id) {
+  global $conn;
+  Vehicle::new_vehicle_usage($conn, $driver_id, $licence_number, $date, null, $cargo_id);
 }
 
 function list_vehicle_usage($from, $to) {
