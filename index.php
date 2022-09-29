@@ -114,7 +114,7 @@ class Vehicle {
     }
   }
 
-  public static function list_vehicle_usage($conn) {
+  public static function list_vehicle_usage($conn, $from, $to) {
 
     $sql = "SELECT
         CONCAT(vehicle.licence_number, ' ', vehicle.type, ' ', vehicle.year_in,
@@ -134,6 +134,9 @@ class Vehicle {
         LEFT JOIN car ON vehicle.licence_number = car.licence_number
         LEFT JOIN pickup ON vehicle.licence_number = pickup.licence_number
         LEFT JOIN truck ON vehicle.licence_number = truck.licence_number
+      WHERE
+        vehicle_usage.usage_date >= '$from'
+        AND vehicle_usage.usage_date <= '$to'
       ORDER BY
         vehicle.licence_number,
         driver.id,
@@ -426,9 +429,9 @@ function new_vehicle_usage(int $driver_id, string $licence_number, string $date)
   Vehicle::new_vehicle_usage($conn, $driver_id, $licence_number, $date);
 }
 
-function list_vehicle_usage() {
+function list_vehicle_usage($from, $to) {
   global $conn;
-  Vehicle::list_vehicle_usage($conn);
+  Vehicle::list_vehicle_usage($conn, $from, $to);
 }
 
 $conn->close();
